@@ -1,114 +1,297 @@
-const { default: axios, AxiosHeaders } = require('axios');
+/**
+ * Pinarkive SDK JavaScript – API v3
+ * Uses native fetch; Bearer token for authenticated calls; optional onUnauthorized (e.g. logout).
+ * Base URL: pass in options or set in .env (PINARKIVE_API_BASE_URL or VITE_BACKEND_API_URL + VITE_API_BASE).
+ */
+
+function getDefaultBaseUrl() {
+  if (typeof window !== 'undefined' && window.__ENV__) {
+    const env = window.__ENV__;
+    const backend = (env.VITE_BACKEND_API_URL || '').replace(/\/$/, '');
+    const base = env.VITE_API_BASE || '/api/v3';
+    return backend ? `${backend}${base.startsWith('/') ? base : `/${base}`}` : '';
+  }
+  if (typeof process !== 'undefined' && process.env?.PINARKIVE_API_BASE_URL) {
+    return process.env.PINARKIVE_API_BASE_URL.replace(/\/$/, '');
+  }
+  if (typeof process !== 'undefined' && process.env?.VITE_BACKEND_API_URL) {
+    const b = process.env.VITE_BACKEND_API_URL.replace(/\/$/, '');
+    const apiBase = process.env.VITE_API_BASE || '/api/v3';
+    return `${b}${apiBase.startsWith('/') ? apiBase : `/${apiBase}`}`;
+  }
+  return '';
+}
 
 class PinarkiveClient {
-  constructor({ token, apiKey }, baseURL = 'https://api.pinarkive.com/api/v2') {
-    this.auth = { token, apiKey };
-    this.axios = axios.create({ baseURL });
-    this.axios.interceptors.request.use((config) => {
-      const headers = new AxiosHeaders(config.headers);
-      if (this.auth.token) {
-        headers.set('Authorization', `Bearer ${this.auth.token}`);
-      } else if (this.auth.apiKey) {
-        headers.set('Authorization', `Bearer ${this.auth.apiKey}`);
+  constructor(authOrOptions, baseURL) {
+    if (typeof baseURL === 'string') {
+      this.baseUrl = baseURL.replace(/\/$/, '');
+      this.auth = authOrOptions;
+      this.onUnauthorized = undefined;
+    } else {
+      const opts = authOrOptions || {};
+      const resolved = opts.baseUrl || getDefaultBaseUrl();
+      if (!resolved) {
+        throw new Error(
+          'PinarkiveClient: baseUrl is required. Pass it in options or set in .env: PINARKIVE_API_BASE_URL or VITE_BACKEND_API_URL + VITE_API_BASE (browser: window.__ENV__)'
+        );
       }
-      config.headers = headers;
-      return config;
+      this.baseUrl = resolved.replace(/\/$/, '');
+      this.auth = { token: opts.token, apiKey: opts.apiKey };
+      this.onUnauthorized = opts.onUnauthorized;
+    }
+  }
+
+  async request(path, options = {}) {
+    const { requireAuth = true, ...init } = options;
+    const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+    const headers = new Headers(init.headers || {});
+
+    if (requireAuth) {
+      const token = this.auth?.token || this.auth?.apiKey;
+      if (token) headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    if (init.body && typeof init.body === 'string' && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    const res = await fetch(url, { ...init, headers });
+    const contentType = res.headers.get('content-type') || '';
+
+    if (!res.ok) {
+      let message = 'Request failed';
+      if (contentType.includes('application/json')) {
+        try {
+          const err = await res.json();
+          message = err.error || message;
+        } catch (_) {}
+      }
+      if ([401, 403].includes(res.status) && this.onUnauthorized) {
+        this.onUnauthorized();
+      }
+      throw new Error(message);
+    }
+
+    if (res.status === 204 || res.headers.get('content-length') === '0') {
+      return undefined;
+    }
+    if (!contentType.includes('application/json')) {
+      throw new Error('Response is not JSON');
+    }
+    return res.json();
+  }
+
+  // --- Public (no Bearer) ---
+  async getPlans() {
+    return this.request('/plans', { requireAuth: false });
+  }
+
+  async getLanguages() {
+    return this.request('/locales/languages', { requireAuth: false });
+  }
+
+  async getCountries() {
+    return this.request('/locales/countries', { requireAuth: false });
+  }
+
+  async login(email, password) {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+      requireAuth: false,
     });
   }
 
-  // --- Authentication ---
+  async signup(body) {
+    return this.request('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      requireAuth: false,
+    });
+  }
 
   // --- File Management ---
-  uploadFile(file) {
+  async uploadFile(file, options = {}) {
     const form = new FormData();
     form.append('file', file);
-    return this.axios.post('/files', form);
+    if (options.clusterId) form.append('cl', options.clusterId);
+    if (options.timelock) form.append('timelock', options.timelock);
+    return this.request('/files', { method: 'POST', body: form });
   }
-  uploadDirectory(dirPath) {
-    return this.axios.post('/files/directory', { dirPath });
+
+  async uploadDirectory(dirPath, options = {}) {
+    return this.request('/files/directory', {
+      method: 'POST',
+      body: JSON.stringify({
+        dirPath,
+        ...(options.clusterId && { cl: options.clusterId }),
+        ...(options.timelock && { timelock: options.timelock }),
+      }),
+    });
   }
-  
-  // New: Directory DAG upload
-  uploadDirectoryDAG(files, dirName = null) {
+
+  async uploadDirectoryDAG(files, options = {}) {
     const form = new FormData();
-    if (dirName) {
-      form.append('dirName', dirName);
-    }
-    
-    // Handle array of files or file objects
+    if (options.dirName) form.append('dirName', options.dirName);
+    if (options.clusterId) form.append('cl', options.clusterId);
+    if (options.timelock) form.append('timelock', options.timelock);
+
     if (Array.isArray(files)) {
       files.forEach((file, index) => {
-        if (file.path && file.content) {
-          form.append(`files[${index}][path]`, file.path);
-          form.append(`files[${index}][content]`, file.content);
-        } else {
-          form.append('files', file);
-        }
+        form.append(`files[${index}][path]`, file.path);
+        form.append(`files[${index}][content]`, file.content);
       });
     } else {
-      // Handle object with file paths as keys
       Object.keys(files).forEach((path, index) => {
         form.append(`files[${index}][path]`, path);
         form.append(`files[${index}][content]`, files[path]);
       });
     }
-    
-    return this.axios.post('/files/directory-dag', form);
-  }
-  
-  
-  // New: Rename file
-  renameFile(uploadId, newName) {
-    return this.axios.put(`/files/rename/${uploadId}`, { newName });
-  }
-  
-  pinCid(cid, filename = null) {
-    const payload = {};
-    if (filename) {
-      payload.filename = filename;
-    }
-    return this.axios.post(`/files/pin/${cid}`, payload);
-  }
-  
-  removeFile(cid) {
-    return this.axios.delete(`/files/remove/${cid}`);
+    return this.request('/files/directory-dag', { method: 'POST', body: form });
   }
 
-  listUploads(page = 1, limit = 10) {
-    return this.axios.get('/users/me/uploads', { params: { page, limit } });
+  async renameFile(uploadId, newName) {
+    return this.request(`/files/rename/${uploadId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ newName }),
+    });
+  }
+
+  async pinCid(cid, options = {}) {
+    const body = {};
+    if (options.customName) body.customName = options.customName;
+    if (options.clusterId) body.cl = options.clusterId;
+    if (options.timelock) body.timelock = options.timelock;
+    return this.request(`/files/pin/${cid}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async removeFile(cid) {
+    return this.request(`/files/remove/${cid}`, { method: 'DELETE' });
+  }
+
+  async listUploads(page = 1, limit = 10, hasExpiration, params) {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (hasExpiration === true) q.set('hasExpiration', 'true');
+    if (params?.parentCid) q.set('parentCid', params.parentCid);
+    if (params?.cid) q.set('cid', params.cid);
+    return this.request(`/users/me/uploads?${q}`);
+  }
+
+  async getDagDetail(cidDag) {
+    return this.request(`/users/me/uploads/dag/${encodeURIComponent(cidDag)}`);
   }
 
   // --- Token Management ---
-  generateToken(name, options = {}) {
+  async generateToken(name, options = {}) {
     const payload = { name };
-    
-    // Support both old format (permissions) and new format (options object)
-    if (options.permissions) {
-      payload.permissions = options.permissions;
-    }
-    if (options.expiresInDays) {
-      payload.expiresInDays = options.expiresInDays;
-    }
-    if (options.ipAllowlist) {
-      payload.ipAllowlist = options.ipAllowlist;
-    }
-    
-    return this.axios.post('/tokens/generate', payload);
-  }
-  listTokens() {
-    return this.axios.get('/tokens/list');
-  }
-  revokeToken(name) {
-    return this.axios.delete(`/tokens/revoke/${name}`);
+    if (options.permissions) payload.permissions = options.permissions;
+    if (options.expiresInDays != null) payload.expiresInDays = options.expiresInDays;
+    if (options.ipAllowlist) payload.ipAllowlist = options.ipAllowlist;
+    return this.request('/tokens/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   }
 
-  // --- Status and Monitoring ---
-  getStatus(cid) {
-    return this.axios.get(`/status/${cid}`);
+  async listTokens() {
+    return this.request('/tokens/list');
   }
-  getAllocations(cid) {
-    return this.axios.get(`/status/allocations/${cid}`);
+
+  async revokeToken(name) {
+    return this.request(`/tokens/revoke/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  }
+
+  // --- Status ---
+  async getStatus(cid) {
+    return this.request(`/status/${cid}`);
+  }
+
+  async getAllocations(cid) {
+    return this.request(`/status/allocations/${cid}`);
+  }
+
+  // --- User ---
+  async getMe() {
+    return this.request('/users/me');
+  }
+
+  async getClusters() {
+    return this.request('/users/me/clusters');
+  }
+
+  async getPreferences() {
+    return this.request('/users/me/preferences');
+  }
+
+  async updatePreferences(language, country) {
+    return this.request('/users/me/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ language, country }),
+    });
+  }
+
+  async getMyPlan() {
+    return this.request('/plans/my-plan');
+  }
+
+  async getPlansForUser() {
+    return this.request('/users/me/plans');
+  }
+
+  async changePlan(planId) {
+    return this.request('/plans/change', {
+      method: 'PUT',
+      body: JSON.stringify({ planId }),
+    });
+  }
+
+  async getReferrals() {
+    return this.request('/users/me/referrals');
+  }
+
+  async updateMe(body) {
+    return this.request('/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updatePassword(body) {
+    return this.request('/users/me/password', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async logout() {
+    return this.request('/auth/logout', { method: 'POST' });
+  }
+
+  async getFileAllocations(cid) {
+    return this.request(`/allocations/${encodeURIComponent(cid)}`);
+  }
+
+  async createPaymentOrder(gateway, planId) {
+    return this.request(`/payments/${gateway}/create`, {
+      method: 'POST',
+      body: JSON.stringify({ planId }),
+    });
+  }
+
+  async getPaymentStatus(gateway, orderId) {
+    return this.request(`/payments/${gateway}/status/${encodeURIComponent(orderId)}`);
+  }
+
+  async cancelPayment(gateway, orderId) {
+    return this.request(`/payments/${gateway}/cancel/${encodeURIComponent(orderId)}`, {
+      method: 'DELETE',
+    });
   }
 }
 
 module.exports = PinarkiveClient;
+module.exports.getDefaultBaseUrl = getDefaultBaseUrl;
