@@ -20,7 +20,7 @@ npm install @pinarkive/pinarkive-sdk-js
 npm install github:pinarkive/pinarkive-sdk-js
 ```
 
-For a specific version: `@pinarkive/pinarkive-sdk-js@3.0.2` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.0.2` (GitHub).
+For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.0` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.0` (GitHub).
 
 ## Base URL (.env or constructor)
 
@@ -53,6 +53,7 @@ await client.pinCid(cid, { customName: 'doc', clusterId: 'cl0-global' });
 - **Token:** `new PinarkiveClient({ token: '...' })`
 - **API Key:** `new PinarkiveClient({ apiKey: '...' })`
 - **onUnauthorized:** optional; called on 401/403
+- **requestSource: 'web':** optional. When the SDK is used from the **browser/frontend**, pass `requestSource: 'web'` so the backend adds the header `X-Request-Source: web` on every Bearer-authenticated request. The backend will then classify those requests as **WEB** in logs instead of **JWT** (CLI/scripts). Only applied when using Bearer (token); never sent when using API Key.
 
 ## Upload and pin (v3)
 
@@ -74,7 +75,12 @@ await client.pinCid(cid, { customName: 'doc', clusterId: 'cl0-global' });
 - **Public (no Bearer):** `getPlans()`, `getLanguages()`, `getCountries()`, `login()`, `signup()`
 - **Status:** `getStatus(cid)`, `getAllocations(cid)`
 
-Responses are the raw JSON body. On error an `Error` is thrown; on 401/403 `onUnauthorized` is called if defined.
+Responses are the raw JSON body. On error the SDK throws **`PinarkiveAPIError`** with `statusCode`, `message`, `code`, `required` (for 403 missing_scope), `retryAfterSeconds` (for 429). On 401/403 `onUnauthorized` is called if defined.
+
+- **Scopes:** `generateToken(name, { scopes: ['files:read', 'files:write'], ... })`.
+- **429:** Use `err.retryAfterSeconds` to wait and retry (or show “retry” to the user).
+- **2FA login:** If `login()` returns `{ requires2FA: true, temporaryToken }`, call `verify2FALogin(temporaryToken, code)`.
+- **2FA tokens:** Pass `totpCode` or `twoFactorCode` in generateToken options and in `revokeToken(name, { totpCode: '...' })`.
 
 ## Support
 

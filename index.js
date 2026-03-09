@@ -4,6 +4,19 @@
  * Base URL: pass in options or set in .env (PINARKIVE_API_BASE_URL or VITE_BACKEND_API_URL + VITE_API_BASE).
  */
 
+/** Thrown on API 4xx/5xx. For 403 missing_scope check .code and .required; for 429 check .retryAfterSeconds. */
+class PinarkiveAPIError extends Error {
+  constructor(message, statusCode, code, required, retryAfterSeconds, body) {
+    super(message);
+    this.name = 'PinarkiveAPIError';
+    this.statusCode = statusCode;
+    this.code = code;
+    this.required = required;
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.body = body;
+  }
+}
+
 function getDefaultBaseUrl() {
   if (typeof window !== 'undefined' && window.__ENV__) {
     const env = window.__ENV__;
@@ -28,6 +41,7 @@ class PinarkiveClient {
       this.baseUrl = baseURL.replace(/\/$/, '');
       this.auth = authOrOptions;
       this.onUnauthorized = undefined;
+      this.requestSource = undefined;
     } else {
       const opts = authOrOptions || {};
       const resolved = opts.baseUrl || getDefaultBaseUrl();
@@ -39,6 +53,7 @@ class PinarkiveClient {
       this.baseUrl = resolved.replace(/\/$/, '');
       this.auth = { token: opts.token, apiKey: opts.apiKey };
       this.onUnauthorized = opts.onUnauthorized;
+      this.requestSource = opts.requestSource;
     }
   }
 
@@ -50,6 +65,10 @@ class PinarkiveClient {
     if (requireAuth) {
       const token = this.auth?.token || this.auth?.apiKey;
       if (token) headers.set('Authorization', `Bearer ${token}`);
+      // Only send X-Request-Source: web when using Bearer (JWT), not when using API Key
+      if (this.requestSource === 'web' && this.auth?.token) {
+        headers.set('X-Request-Source', 'web');
+      }
     }
 
     if (init.body && typeof init.body === 'string' && !headers.has('Content-Type')) {
@@ -61,16 +80,24 @@ class PinarkiveClient {
 
     if (!res.ok) {
       let message = 'Request failed';
+      let body;
       if (contentType.includes('application/json')) {
         try {
-          const err = await res.json();
-          message = err.error || message;
+          body = await res.json();
+          message = body.message ?? body.error ?? message;
         } catch (_) {}
       }
       if ([401, 403].includes(res.status) && this.onUnauthorized) {
         this.onUnauthorized();
       }
-      throw new Error(message);
+      const code = body?.code;
+      const required = body?.required;
+      const retryAfterHeader = res.headers.get('Retry-After');
+      const retryAfterSeconds =
+        res.status === 429
+          ? (body?.retryAfter ?? (retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined))
+          : undefined;
+      throw new PinarkiveAPIError(message, res.status, code, required, retryAfterSeconds, body);
     }
 
     if (res.status === 204 || res.headers.get('content-length') === '0') {
@@ -95,10 +122,19 @@ class PinarkiveClient {
     return this.request('/locales/countries', { requireAuth: false });
   }
 
+  /** If response has requires2FA and temporaryToken, call verify2FALogin(temporaryToken, code) to get session token. */
   async login(email, password) {
     return this.request('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+      requireAuth: false,
+    });
+  }
+
+  async verify2FALogin(temporaryToken, code) {
+    return this.request('/auth/2fa/verify-login', {
+      method: 'POST',
+      body: JSON.stringify({ temporaryToken, code }),
       requireAuth: false,
     });
   }
@@ -188,9 +224,12 @@ class PinarkiveClient {
   // --- Token Management ---
   async generateToken(name, options = {}) {
     const payload = { name };
+    if (options.scopes?.length) payload.scopes = options.scopes;
     if (options.permissions) payload.permissions = options.permissions;
     if (options.expiresInDays != null) payload.expiresInDays = options.expiresInDays;
     if (options.ipAllowlist) payload.ipAllowlist = options.ipAllowlist;
+    const totp = options.totpCode ?? options.twoFactorCode;
+    if (totp) payload.totpCode = totp;
     return this.request('/tokens/generate', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -201,8 +240,18 @@ class PinarkiveClient {
     return this.request('/tokens/list');
   }
 
-  async revokeToken(name) {
-    return this.request(`/tokens/revoke/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  /** If account has 2FA, pass { totpCode: '...' } or { twoFactorCode: '...' }. */
+  async revokeToken(name, options = {}) {
+    const body =
+      options.totpCode != null
+        ? JSON.stringify({ totpCode: options.totpCode })
+        : options.twoFactorCode != null
+          ? JSON.stringify({ twoFactorCode: options.twoFactorCode })
+          : undefined;
+    return this.request(`/tokens/revoke/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      ...(body && { body }),
+    });
   }
 
   // --- Status ---
@@ -295,3 +344,4 @@ class PinarkiveClient {
 
 module.exports = PinarkiveClient;
 module.exports.getDefaultBaseUrl = getDefaultBaseUrl;
+module.exports.PinarkiveAPIError = PinarkiveAPIError;
