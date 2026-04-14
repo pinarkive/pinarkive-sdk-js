@@ -20,7 +20,7 @@ npm install @pinarkive/pinarkive-sdk-js
 npm install github:pinarkive/pinarkive-sdk-js
 ```
 
-For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.0` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.0` (GitHub).
+For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.2` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.2` (GitHub).
 
 ## Base URL (.env or constructor)
 
@@ -62,9 +62,25 @@ Options: **clusterId** (`cl`) and **timelock** (ISO 8601 UTC, premium only).
 ```javascript
 await client.uploadFile(file, { clusterId: 'cl0-global' });
 await client.uploadDirectory(dirPath, { clusterId: 'cl1-eu' });
-await client.uploadDirectoryDAG(files, { dirName: 'proj', clusterId: 'cl0-global' });
+const dag = await client.uploadDirectoryDAG(
+  [
+    { path: '1.png', content: file1 },
+    { path: '2.png', content: file2 },
+  ],
+  { dirName: 'proj', clusterId: 'cl0-global' }
+);
+console.log(dag.cid); // root CID → gateway …/ipfs/<cid>/1.png
 await client.pinCid(cid, { customName: 'doc', clusterId: 'cl0-global' });
 ```
+
+### Directory DAG (`uploadDirectoryDAG`)
+
+The backend uses **multer** `upload.array('files')`. Each file must be appended as field **`files`**, with the **multipart filename** equal to the path inside the DAG (e.g. `1.png`, `icons/logo.svg`). This matches the web app helper `uploadFilesAsDag` (`formData.append('files', file, filePath)`).
+
+- **Array form:** `[{ path: string, content: File|Blob|string }, ...]`
+- **Object form:** `{ [path: string]: File|Blob|string }`
+
+Release notes: see [CHANGELOG.md](./CHANGELOG.md).
 
 ## API reference (v3)
 

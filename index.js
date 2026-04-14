@@ -35,6 +35,25 @@ function getDefaultBaseUrl() {
   return '';
 }
 
+/**
+ * Appends one file part for POST /files/directory-dag.
+ * The Pinarkive API uses multer `upload.array('files')`: repeated field name `files`,
+ * multipart filename = path inside the DAG (e.g. `1.png` or `assets/logo.png`).
+ * Mirrors app.pinarkive.com: `formData.append('files', file, filePath)`.
+ */
+function appendDirectoryDagFile(form, relativePath, content) {
+  const path = String(relativePath).replace(/\\/g, '/').trim();
+  if (!path || path.startsWith('/') || path.split('/').some((seg) => seg === '..')) {
+    throw new Error(`Invalid DAG path: ${relativePath}`);
+  }
+  if (typeof content === 'string') {
+    const blob = new Blob([content], { type: 'application/octet-stream' });
+    form.append('files', blob, path);
+    return;
+  }
+  form.append('files', content, path);
+}
+
 class PinarkiveClient {
   constructor(authOrOptions, baseURL) {
     if (typeof baseURL === 'string') {
@@ -174,15 +193,13 @@ class PinarkiveClient {
     if (options.timelock) form.append('timelock', options.timelock);
 
     if (Array.isArray(files)) {
-      files.forEach((file, index) => {
-        form.append(`files[${index}][path]`, file.path);
-        form.append(`files[${index}][content]`, file.content);
-      });
+      for (const file of files) {
+        appendDirectoryDagFile(form, file.path, file.content);
+      }
     } else {
-      Object.keys(files).forEach((path, index) => {
-        form.append(`files[${index}][path]`, path);
-        form.append(`files[${index}][content]`, files[path]);
-      });
+      for (const [path, content] of Object.entries(files)) {
+        appendDirectoryDagFile(form, path, content);
+      }
     }
     return this.request('/files/directory-dag', { method: 'POST', body: form });
   }

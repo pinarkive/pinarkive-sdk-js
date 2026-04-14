@@ -1,6 +1,6 @@
 {
   "name": "@pinarkive/pinarkive-sdk-js",
-  "version": "3.1.0",
+  "version": "3.1.2",
   "description": "JavaScript SDK for the Pinarkive API v3 - fetch-based, Bearer auth, clusterId (cl) and timelock support.",
   "main": "index.js",
   "scripts": {
