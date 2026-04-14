@@ -106,7 +106,8 @@ class PinarkiveClient {
           message = body.message ?? body.error ?? message;
         } catch (_) {}
       }
-      if ([401, 403].includes(res.status) && this.onUnauthorized) {
+      // Only 401 = invalid/expired session. 403 may be missing_scope or permission denied.
+      if (res.status === 401 && this.onUnauthorized) {
         this.onUnauthorized();
       }
       const code = body?.code;

@@ -2,6 +2,12 @@
 
 All notable changes to `@pinarkive/pinarkive-sdk-js` are documented here.
 
+## [3.1.4] - 2026-04-14
+
+### Fixed
+
+- **`onUnauthorized`:** Se invoca solo ante **HTTP 401**, no ante **403** (misma semántica que `@pinarkive/pinarkive-sdk-ts` 3.1.5).
+
 ## [3.1.3] - 2026-04-14
 
 ### Changed

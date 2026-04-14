@@ -1,6 +1,6 @@
 # Pinarkive JavaScript SDK (API v3)
 
-JavaScript client for the **Pinarkive API v3**. Uses native `fetch`; Bearer auth; **clusterId** (`cl`) and **timelock** (premium); **onUnauthorized** on 401/403.
+JavaScript client for the **Pinarkive API v3**. Uses native `fetch`; Bearer auth; **clusterId** (`cl`) and **timelock** (premium); **onUnauthorized** on **401 only** (not on 403 — e.g. `missing_scope` is not a session expiry).
 
 > **Version policy (as of Mar 2026):** Only **v3.x.x** is supported and maintained. **v2.3.1** and earlier are **obsolete**; please upgrade to v3.
 
@@ -20,7 +20,7 @@ npm install @pinarkive/pinarkive-sdk-js
 npm install github:pinarkive/pinarkive-sdk-js
 ```
 
-For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.3` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.3` (GitHub).
+For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.4` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.4` (GitHub).
 
 ## Base URL (.env or constructor)
 
@@ -52,7 +52,7 @@ await client.pinCid(cid, { customName: 'doc', clusterId: 'cl0-global' });
 
 - **Token:** `new PinarkiveClient({ token: '...' })`
 - **API Key:** `new PinarkiveClient({ apiKey: '...' })`
-- **onUnauthorized:** optional; called on 401/403
+- **onUnauthorized:** optional; called on **401** only
 - **requestSource: 'web':** optional. When the SDK is used from the **browser/frontend**, pass `requestSource: 'web'` so the backend adds the header `X-Request-Source: web` on every Bearer-authenticated request. The backend will then classify those requests as **WEB** in logs instead of **JWT** (CLI/scripts). Only applied when using Bearer (token); never sent when using API Key.
 
 ## Upload and pin (v3)
@@ -91,7 +91,7 @@ Release notes: see [CHANGELOG.md](./CHANGELOG.md).
 - **Public (no Bearer):** `getPlans()`, `getLanguages()`, `getCountries()`, `login()`, `signup()`
 - **Status:** `getStatus(cid)`, `getAllocations(cid)`
 
-Responses are the raw JSON body. On error the SDK throws **`PinarkiveAPIError`** with `statusCode`, `message`, `code`, `required` (for 403 missing_scope), `retryAfterSeconds` (for 429). On 401/403 `onUnauthorized` is called if defined.
+Responses are the raw JSON body. On error the SDK throws **`PinarkiveAPIError`** with `statusCode`, `message`, `code`, `required` (for 403 missing_scope), `retryAfterSeconds` (for 429). If `onUnauthorized` is defined, it is called on **401** only.
 
 - **Scopes:** `generateToken(name, { scopes: ['files:read', 'files:write'], ... })`.
 - **429:** Use `err.retryAfterSeconds` to wait and retry (or show “retry” to the user).
