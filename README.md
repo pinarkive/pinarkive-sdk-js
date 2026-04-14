@@ -20,7 +20,7 @@ npm install @pinarkive/pinarkive-sdk-js
 npm install github:pinarkive/pinarkive-sdk-js
 ```
 
-For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.2` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.2` (GitHub).
+For a specific version: `@pinarkive/pinarkive-sdk-js@3.1.3` (npm) or `github:pinarkive/pinarkive-sdk-js#v3.1.3` (GitHub).
 
 ## Base URL (.env or constructor)
 
@@ -101,4 +101,4 @@ Responses are the raw JSON body. On error the SDK throws **`PinarkiveAPIError`**
 ## Support
 
 - GitHub: [pinarkive/pinarkive-sdk-js](https://github.com/pinarkive/pinarkive-sdk-js)
-- API: [api.pinarkive.com/docs](https://api.pinarkive.com/docs)
+- Documentation: [docs.pinarkive.com](https://docs.pinarkive.com)
