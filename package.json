@@ -1,10 +1,11 @@
 {
   "name": "@pinarkive/pinarkive-sdk-js",
-  "version": "3.1.5",
+  "version": "3.1.6",
   "description": "JavaScript SDK for the Pinarkive API v3 - fetch-based, Bearer auth, clusterId (cl) and timelock support.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test index.test.js",
+    "build": "node -e \"require('./index.js'); console.log('ok')\""
   },
   "license": "MIT",
   "repository": {
